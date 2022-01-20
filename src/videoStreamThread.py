@@ -8,8 +8,8 @@ class VideoStreamWidget(object):
     def __init__(self, src=0):
         self.opts = get_opts()
         self.board = np.zeros((self.opts.grid_size, self.opts.grid_size))
-        self.pixelatedFrame = np.zeros((self.opts.grid_size, self.opts.grid_size, 3))
-        self.visual_board = np.zeros((self.opts.grid_size, self.opts.grid_size, 3))
+        self.pixelatedFrame = np.zeros((self.opts.gui_size, self.opts.gui_size, 3)).astype('uint8')
+        self.visual_board = np.zeros((self.opts.gui_size, self.opts.gui_size, 3)).astype('uint8')
         self.H2to1 = np.load('H2to1.npy')
         self.mask = np.load('mask.npy')
         self.unwarped = cv2.resize(cv2.imread('../data/goboard8x8.jpg', -1), (512, 512))
@@ -26,6 +26,7 @@ class VideoStreamWidget(object):
         self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.opts.frame_height)
         if self.capture.isOpened():
             (self.status, self.prev_frame) = self.capture.read()
+            self.prev_frame = compositeH(self.H2to1, self.prev_frame, self.unwarped)
             self.last_valid_frame = self.prev_frame
             gray = cv2.cvtColor(self.prev_frame, cv2.COLOR_BGR2GRAY)
             gray = cv2.GaussianBlur(gray, (21, 21), 0)
@@ -43,6 +44,7 @@ class VideoStreamWidget(object):
         while True:
             if self.capture.isOpened():
                 (self.status, self.frame) = self.capture.read()
+                self.frame = compositeH(self.H2to1, self.frame, self.unwarped)
                 gray = cv2.cvtColor(self.frame, cv2.COLOR_BGR2GRAY)
                 gray = cv2.GaussianBlur(gray, (21, 21), 0)
                 frameDelta = cv2.absdiff(self.prev_frame, gray)
@@ -60,7 +62,7 @@ class VideoStreamWidget(object):
                     self.static_recorded = False
                 elif self.movement <= 0 and self.static is True:
                     elapsedTime = time.time() - t
-                    if elapsedTime > 3 and not self.static_recorded:
+                    if elapsedTime > 1 and not self.static_recorded:
                         self.last_valid_frame = self.frame
                         self.static_recorded = True
                         self.board_updated = False
@@ -77,6 +79,14 @@ class VideoStreamWidget(object):
             cv2.destroyAllWindows()
             exit(1)
 
+    def show_last_valid_frame(self):
+        cv2.imshow('lastValidFrame', self.last_valid_frame)
+        key = cv2.waitKey(1)
+        if key == ord('q'):
+            self.capture.release()
+            cv2.destroyAllWindows()
+            exit(1)
+
     def get_last_valid_frame(self):
         return self.last_valid_frame
 
@@ -86,12 +96,18 @@ class VideoStreamWidget(object):
     def show_board(self):
         cv2.imshow('pixelated', self.pixelatedFrame)
         cv2.imshow('visual_board', self.visual_board)
+        key = cv2.waitKey(1)
+        if key == ord('q'):
+            self.capture.release()
+            cv2.destroyAllWindows()
+            exit(1)
 
     def update_board(self):
         if not self.board_updated:
-            modFrame = compositeH(self.H2to1, self.last_valid_frame, self.unwarped) * \
+            # modFrame = compositeH(self.H2to1, self.last_valid_frame, self.unwarped) * \
+            #            self.mask.reshape((self.mask.shape[0], self.mask.shape[1], 1)).astype('uint8')
+            modFrame = self.last_valid_frame * \
                        self.mask.reshape((self.mask.shape[0], self.mask.shape[1], 1)).astype('uint8')
-
             averages = np.zeros((self.opts.grid_size ** 2, 3))
 
             for k in range(modFrame.shape[2]):
@@ -114,13 +130,13 @@ class VideoStreamWidget(object):
                 for j in range(averages.shape[1]):
                     if white_dist[i, j] < red_dist[i, j] and white_dist[i, j] < black_dist[i, j]:
                         board[i, j] = 2
-                        visual_board[i, j, :] = [255, 255, 255]
+                        visual_board[i, j, :] = self.opts.white
                     elif black_dist[i, j] < red_dist[i, j] and black_dist[i, j] < white_dist[i, j]:
                         board[i, j] = 1
-                        visual_board[i, j, :] = [0, 0, 0]
+                        visual_board[i, j, :] = self.opts.black
                     else:
                         board[i, j] = 0
-                        visual_board[i, j, :] = [0, 0, 255]
+                        visual_board[i, j, :] = self.opts.red
 
             self.board = board
             averages = np.array(averages).astype('uint8')
